@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Label, Select, Textarea } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { Workspace, ContentType } from '@/lib/types';
-import { Sparkles, Save, Copy, Check } from 'lucide-react';
+import { Sparkles, Save, Copy, Check, Send, Clock, Calendar } from 'lucide-react';
 import { useToast } from '@/components/providers/toast-provider';
 
 function useIsDemo() {
@@ -149,6 +149,11 @@ export function CreateContent({ workspace }: { workspace: Workspace }) {
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
 
   const currentTab = tabs.find(t => t.key === activeTab)!;
 
@@ -210,6 +215,66 @@ export function CreateContent({ workspace }: { workspace: Workspace }) {
     } catch {
       toast({ type: 'error', message: 'コピーに失敗しました' });
     }
+  };
+
+  const handlePostNow = async () => {
+    if (!generatedContent) return;
+    setPosting(true);
+    try {
+      const res = await fetch('/api/scheduler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: generatedContent,
+          scheduledAt: new Date().toISOString(),
+          platform: currentTab.platform,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        throw new Error(data.error || 'Failed to post');
+      }
+      toast({ type: 'success', message: 'Xに投稿しました（mockモードの場合はコンソールに出力）' });
+    } catch (err) {
+      toast({ type: 'error', message: err instanceof Error ? err.message : '投稿に失敗しました' });
+    }
+    setPosting(false);
+  };
+
+  const handleSchedulePost = async () => {
+    if (!generatedContent || !scheduleDate || !scheduleTime) {
+      toast({ type: 'warning', message: '日時を選択してください' });
+      return;
+    }
+    setScheduling(true);
+    try {
+      const scheduledAt = new Date(`${scheduleDate}T${scheduleTime}`);
+      if (isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
+        toast({ type: 'warning', message: '未来の日時を選択してください' });
+        setScheduling(false);
+        return;
+      }
+      const res = await fetch('/api/scheduler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: generatedContent,
+          scheduledAt: scheduledAt.toISOString(),
+          platform: currentTab.platform,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        throw new Error(data.error || 'Failed to schedule');
+      }
+      toast({ type: 'success', message: `${scheduleDate} ${scheduleTime} にスケジュールしました` });
+      setShowScheduleForm(false);
+      setScheduleDate('');
+      setScheduleTime('');
+    } catch (err) {
+      toast({ type: 'error', message: err instanceof Error ? err.message : 'スケジュールに失敗しました' });
+    }
+    setScheduling(false);
   };
 
   return (
@@ -291,6 +356,61 @@ export function CreateContent({ workspace }: { workspace: Workspace }) {
             ) : (
               <div className="flex items-center justify-center h-48 text-sm text-neutral-400 bg-neutral-50 rounded-lg">
                 テーマを入力して生成してください
+              </div>
+            )}
+
+            {/* Post / Schedule buttons - only for X */}
+            {generatedContent && activeTab === 'x_post' && (
+              <div className="space-y-3 pt-2">
+                <div className="flex gap-2">
+                  <Button onClick={handlePostNow} disabled={posting} className="flex-1">
+                    <Send className="w-4 h-4 mr-2" />
+                    {posting ? '投稿中...' : '今すぐ投稿'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowScheduleForm(!showScheduleForm)}
+                    className="flex-1"
+                  >
+                    <Calendar className="w-4 h-4 mr-2" />
+                    スケジュール投稿
+                  </Button>
+                </div>
+                {showScheduleForm && (
+                  <div className="bg-neutral-50 rounded-lg p-4 space-y-3 animate-fade-in" style={{ animationFillMode: 'both' }}>
+                    <p className="text-sm font-medium text-neutral-700 flex items-center gap-1">
+                      <Clock className="w-4 h-4" />
+                      投稿日時を選択
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>日付</Label>
+                        <Input
+                          type="date"
+                          value={scheduleDate}
+                          onChange={e => setScheduleDate(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]}
+                        />
+                      </div>
+                      <div>
+                        <Label>時刻</Label>
+                        <Input
+                          type="time"
+                          value={scheduleTime}
+                          onChange={e => setScheduleTime(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleSchedulePost}
+                      disabled={scheduling || !scheduleDate || !scheduleTime}
+                      className="w-full"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      {scheduling ? 'スケジュール中...' : '予約する'}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </Card>
